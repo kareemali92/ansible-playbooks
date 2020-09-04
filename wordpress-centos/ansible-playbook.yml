@@ -7,11 +7,14 @@
   tasks:
     - name: Disable SELinux
       selinux:
-      state: disabled
+        state: disabled
+    
+    - name: Enable remi repo for PHP 7.3.
+      set_fact: php_enablerepo="remi,remi-php73"
 
     - name: install httpd*
       yum: name={{ item }} update_cache=yes state=latest
-      loop: ['httpd','mysql-server', 'python3-pymysql', 'php', 'php-mysql', 'libapache2-mod-php']
+      loop: ['httpd', 'php']
       tags: [ system ]
 
     - name: Install PHP Extensions
@@ -24,39 +27,74 @@
       file:
         path: "/var/www/{{ http_host }}"
         state: directory
-        owner: "www-data"
-        group: "www-data"
+        owner: "apache"
+        group: "apache"
         mode: '0755'
       tags: [ apache ]
 
+    - name: Create available-sites
+      file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+      - /etc/httpd/sites-enabled
+      - /etc/httpd/sites-available
+
+    - name: activate sites-enabled
+      lineinfile:
+        path: "/etc/httpd/conf/httpd.conf"
+        line: "IncludeOptional sites-enabled/*.conf" 
+   
     - name: Set up Apache VirtualHost
       template:
         src: "files/httpd.conf.j2"
-        dest: "/etc/apache2/sites-available/{{ http_conf }}"
+        dest: "/etc/httpd/sites-available/{{ http_conf }}"
       notify:
-      - restart apache
+      - restart httpd
       tags: [ apache ]
 
-    - name: Enable rewrite module
-      shell: /usr/sbin/a2enmod rewrite
-      notify:
-      - restart apache
-      tags: [ apache ]
-
-    - name: Disable default Apache site
-      shell: /usr/sbin/a2dissite 000-default.conf
-      notify:
-      - restart apache
-      tags: [ apache ]
+    - name: create symlink to site
+      file: src="/etc/httpd/sites-available/{{ http_conf }}" dest="/etc/httpd/sites-enabled/{{ http_conf }}" state=link 
+      notify: apache reload
 
   # MySQL Configuration
-    - name: Set the root password
-      mysql_user:
-        name: root
-        password: "{{ mysql_root_password }}"
-        login_unix_socket: /var/run/mysqld/mysqld.sock
-      tags: [ mysql, mysql-root ]
+    - name: "Installing Repo"
+      shell: sudo rpm -Uvh https://dev.mysql.com/get/mysql80-community-release-el7-3.noarch.rpm
+      ignore_errors: yes
 
+    - name: "Installing MySQL 5.7"
+      yum: name={{ item }} enablerepo="mysql57-community"
+      loop: ['mysql-community-server', 'mysql-community-client', 'MySQL-python']
+    
+    - name: "Installing php-mysql"
+      package: name=php-mysql state=present
+
+    - name: Start the MySQL service
+      become: true
+      service: 
+        name: mysqld
+        state: started
+        enabled: true
+
+    - name: Change the authentication plugin of MySQL root user to mysql_native_password
+      shell: mysql -u root -e 'UPDATE mysql.user SET plugin="mysql_native_password" WHERE user="root" AND host="localhost"'
+
+    - name: Flush Privileges
+      shell: mysql -u root -e 'FLUSH PRIVILEGES'
+
+    - name: Set MySQL root password
+      mysql_user:
+        login_user: 'root'
+        login_password: ''
+        name: 'root'
+        priv: '*.*:ALL,GRANT'
+        host_all: yes
+        login_unix_socket: '/var/run/mysqld/mysqld.sock'
+        check_implicit_admin: true
+        password: '{{ mysql_root_password }}'
+        state: present
+      notify: restart mysqld
+ 
     - name: Remove all anonymous user accounts
       mysql_user:
         name: ''
@@ -96,7 +134,7 @@
   # WordPress Configuration
     - name: Download and unpack latest WordPress
       unarchive:
-        src: "/tmp/"
+        src: "/tmp/blog-wuzzuf.tar.gz"
         dest: "/var/www/{{ http_host }}"
         remote_src: yes
         creates: "/var/www/{{ http_host }}/"
@@ -107,8 +145,8 @@
         path: "/var/www/{{ http_host }}"
         state: directory
         recurse: yes
-        owner: www-data
-        group: www-data
+        owner: apache
+        group: apache
       tags: [ wordpress ]
 
     - name: Set permissions for directories
@@ -124,76 +162,6 @@
         src: "files/wp-config.php.j2"
         dest: "/var/www/{{ http_host }}/wp-config.php"
       tags: [ wordpress ]
-
-    - name: "Create required directories in /etc/letsencrypt"
-      file:
-        path: "/etc/letsencrypt/{{ item }}"
-        state: directory
-        owner: root
-        group: root
-        mode: u=rwx,g=x,o=x
-      with_items:
-      - account
-      - certs
-      - csrs
-      - keys
-
-    - name: "Generate a Let's Encrypt account key"
-      shell: "if [ ! -f {{ letsencrypt_account_key }} ]; then openssl genrsa 4096 | sudo tee {{ letsencrypt_account_key }}; fi"
-
-    - name: "Generate Let's Encrypt private key"
-      shell: "openssl genrsa 4096 | sudo tee /etc/letsencrypt/keys/{{ domain_name }}.key"
-
-    - name: "Generate Let's Encrypt CSR"
-      shell: "openssl req -new -sha256 -key /etc/letsencrypt/keys/{{ domain_name }}.key -subj \"/CN={{ domain_name }}\" -reqexts SAN -config <(cat /etc/ssl/openssl.cnf <(printf \"\n[SAN]\nsubjectAltName=DNS:{{ domain_name }},DNS:www.{{ domain_name }}\")) | sudo tee /etc/letsencrypt/csrs/{{ domain_name }}.csr"
-      args:
-        executable: /bin/bash
-
-    - name: "Begin Let's Encrypt challenges"
-      letsencrypt:
-        acme_directory: "{{ acme_directory }}"
-        acme_version: "{{ acme_version }}"
-        account_key_src: "{{ letsencrypt_account_key }}"
-        account_email: "{{ acme_email }}"
-        terms_agreed: 1
-        challenge: "{{ acme_challenge_type }}"
-        csr: "{{ letsencrypt_csrs_dir }}/{{ domain_name }}.csr"
-        dest: "{{ letsencrypt_certs_dir }}/{{ domain_name }}.crt"
-        fullchain_dest: "{{ letsencrypt_certs_dir }}/fullchain_{{ domain_name }}.crt"
-        remaining_days: 91
-      register: acme_challenge_your_domain
-
-    - name: "Create .well-known/acme-challenge directory"
-      file:
-        path: /var/www/html/.well-known/acme-challenge
-        state: directory
-        owner: root
-        group: root
-        mode: u=rwx,g=rx,o=rx
-
-    - name: "Implement http-01 challenge files"
-      copy:
-        content: "{{ acme_challenge_your_domain['challenge_data'][item]['http-01']['resource_value'] }}"
-        dest: "/var/www/html/{{ acme_challenge_your_domain['challenge_data'][item]['http-01']['resource'] }}"
-        owner: root
-        group: root
-        mode: u=rw,g=r,o=r
-      with_items:
-      - "{{ domain_name }}"
-      - "www.{{ domain_name }}"
-
-    - name: "Complete Let's Encrypt challenges"
-      letsencrypt:
-        acme_directory: "{{ acme_directory }}"
-        acme_version: "{{ acme_version }}"
-        account_key_src: "{{ letsencrypt_account_key }}"
-        account_email: "{{ acme_email }}"
-        challenge: "{{ acme_challenge_type }}"
-        csr: "{{ letsencrypt_csrs_dir }}/{{ domain_name }}.csr"
-        dest: "{{ letsencrypt_certs_dir }}/{{ domain_name }}.crt"
-        chain_dest: "{{ letsencrypt_certs_dir }}/chain_{{ domain_name }}.crt"
-        fullchain_dest: "{{ letsencrypt_certs_dir }}/fullchain_{{ domain_name }}"
-        data: "{{ acme_challenge_your_domain }}"
 
   handlers:
     - name: Reload Apache
