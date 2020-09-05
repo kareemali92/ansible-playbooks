@@ -112,6 +112,13 @@
         login_password: "{{ mysql_root_password }}"
       tags: [ mysql ]
 
+    - name: Import blog.sql to {{ mysql_db }} database
+      mysql_db:
+        state: import
+        name: {{ mysql_db }}
+        target: /tmp/blog.sql
+
+
   # WordPress Configuration
 
     - name: ensure wordpress directory exists
