@@ -96,10 +96,10 @@
 
     - name: Creates database for WordPress
       mysql_db:
-        name: "{{ mysql_db }}"
+        name: '{{ mysql_db }}'
         state: present
         login_user: root
-        login_password: "{{ mysql_root_password }}"
+        login_password: '{{ mysql_root_password }}'
       tags: [ mysql ]
     
     - name: Create MySQL user for WordPress
@@ -115,7 +115,7 @@
     - name: Import blog.sql to {{ mysql_db }} database
       mysql_db:
         state: import
-        name: {{ mysql_db }}
+        name: '{{ mysql_db }}'
         target: /tmp/blog.sql
 
 
