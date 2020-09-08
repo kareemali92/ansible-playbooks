@@ -25,7 +25,7 @@
   # Apache Configuration
     - name: Create document root
       file:
-        path: "/var/www/{{ http_host }}"
+        path: "/var/www/html/{{ http_dir }}"
         state: directory
         owner: "apache"
         group: "apache"
