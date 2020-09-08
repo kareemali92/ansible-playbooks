@@ -3,8 +3,8 @@
     ServerName {{ http_host }}
     ServerAlias www.{{ http_host }}
     DocumentRoot {{ host_dir }}/{{ http_dir }}/
-    ErrorLog ${APACHE_LOG_DIR}/error.log
-    CustomLog ${APACHE_LOG_DIR}/access.log combined
+    ErrorLog {{ host_dir }}/{{ http_dir }}/error.log
+    CustomLog {{ host_dir }}/{{ http_dir }}/access.log combined
 
     <Directory {{ host_dir }}/{{ http_dir }}>
           Options -Indexes
