@@ -25,7 +25,7 @@
   # Apache Configuration
     - name: Create document root
       file:
-        path: "/var/www/html/{{ http_dir }}"
+        path: "{{ host_dir }}/{{ http_dir }}"
         state: directory
         owner: "apache"
         group: "apache"
@@ -123,18 +123,18 @@
 
     - name: ensure wordpress directory exists
       file:
-        path: /var/www/html/{{ http_dir }}
+        path: {{ host_dir }}/{{ http_dir }}
         state: directory
 
     - name: Download and unpack latest WordPress
       unarchive:
-        src: "/tmp/blog-wuzzuf.tar.gz"
-        dest: "/var/www/html/{{ http_dir }}"
+        src: "{{ host_dir }}/blog-wuzzuf.tar.gz"
+        dest: "{{ host_dir }}/{{ http_dir }}"
       tags: [ wordpress ]
 
     - name: Set ownership
       file:
-        path: "/var/www/html/{{ http_dir }}"
+        path: "{{ host_dir }}/{{ http_dir }}"
         state: directory
         recurse: yes
         owner: apache
@@ -142,17 +142,17 @@
       tags: [ wordpress ]
 
     - name: Set permissions for directories
-      shell: "/usr/bin/find /var/www/html/{{ http_dir }}/ -type d -exec chmod 750 {} \\;"
+      shell: "/usr/bin/find {{ host_dir }}/{{ http_dir }}/ -type d -exec chmod 750 {} \\;"
       tags: [ wordpress ]
 
     - name: Set permissions for files
-      shell: "/usr/bin/find /var/www/html/{{ http_dir }}/ -type f -exec chmod 640 {} \\;"
+      shell: "/usr/bin/find {{ host_dir }}/{{ http_dir }}/ -type f -exec chmod 640 {} \\;"
       tags: [ wordpress ]
 
     - name: Set up wp-config
       template:
         src: "files/wp-config.php.j2"
-        dest: "/var/www/html/{{ http_dir }}/wp-config.php"
+        dest: "{{ host_dir }}/{{ http_dir }}/wp-config.php"
       tags: [ wordpress ]
 
   handlers:
