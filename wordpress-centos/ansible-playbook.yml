@@ -9,16 +9,17 @@
       selinux:
         state: disabled
     
-    - name: Enable remi repo for PHP 7.3.
-      set_fact: php_enablerepo="remi,remi-php73"
+    - name: "Installing rem7 Repo"
+      shell: sudo rpm -Uvh http://rpms.remirepo.net/enterprise/remi-release-7.rpm
+      ignore_errors: yes
 
     - name: install httpd*
-      yum: name={{ item }} update_cache=yes state=latest
+      yum: name={{ item }} update_cache=yes state=latest enablerepo="remi-php73"
       loop: ['httpd', 'php']
       tags: [ system ]
 
     - name: Install PHP Extensions
-      yum: name={{ item }} update_cache=yes state=latest
+      yum: name={{ item }} update_cache=yes state=latest enablerepo="remi-php73"
       loop: "{{ php_modules }}"
       tags: [ system ]
 
@@ -65,10 +66,7 @@
     - name: "Installing MySQL 5.7"
       yum: name={{ item }} enablerepo="mysql57-community"
       loop: ['mysql-community-server', 'mysql-community-client', 'MySQL-python', 'python2-PyMySQL']
-    
-    - name: "Installing php-mysql"
-      package: name=php-mysql state=present
-
+  
     - name: Start the MySQL service
       become: true
       service: 
@@ -76,11 +74,37 @@
         state: started
         enabled: true
 
-    - name: Change the authentication plugin of MySQL root user to mysql_native_password
-      shell: mysql -u root -e 'UPDATE mysql.user SET plugin="mysql_native_password" WHERE user="root" AND host="localhost"'
+    # MySQL 
+    - name: Ensure mySQL is running and starts on boot
+      service: name=mysql state=started enabled=true
 
-    - name: Flush Privileges
-      shell: mysql -u root -e 'FLUSH PRIVILEGES'
+    - name: Stop MySQL
+      service: name=mysql state=stopped
+    - name: set environment variables
+      shell: systemctl set-environment MYSQLD_OPTS="--skip-grant-tables"
+    - name: Start MySQL
+      service: name=mysql state=started
+    - name: sql query
+      command:  mysql -u root --execute="ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '"{{ mysql_root_password }}"';"
+    - name: Create ~/.my.cnf
+      file:
+        path: ~/.my.cnf
+        state: touch
+    - name: Insert into ~/.my.cnf
+      blockinfile:
+        path: ~/.my.cnf
+        block: |
+          [client]
+          user={{ mysql_user }}
+          password={{ mysql_root_password }}
+    - name: sql query flush
+    command:  mysql -u root --execute="FLUSH PRIVILEGES"
+    - name: Stop MySQL
+    service: name=mysql state=stopped
+    - name: unset environment variables
+    shell: systemctl unset-environment MYSQLD_OPTS
+    - name: Start MySQL
+    service: name=mysql state=started
 
     - name: Set MySQL root password
       mysql_user:
